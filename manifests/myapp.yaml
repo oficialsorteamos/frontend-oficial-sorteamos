@@ -1,0 +1,295 @@
+# configuration that will be used by the Laravel web pod
+# this will override the content of .env
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myapp-laravel
+data:
+  APP_DEBUG: "false"
+  APP_ENV: production
+  APP_KEY: base64:nQKCOivp3DJkaRqGmYfEBPu++2gCy3wUrADJn8crvfI=
+  APP_LOG_LEVEL: debug
+  APP_NAME: "Laravel"
+  APP_URL: http://locahost
+  DB_CONNECTION: mysql
+  DB_DATABASE: db_system
+  DB_HOST: myapp-mysql
+  DB_PASSWORD: MTIzNDU2
+  DB_PORT: "3306"
+  DB_USERNAME: root
+  CACHE_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: myapp-redis
+  REDIS_PORT: "6379"
+  PUSHER_APP_ID: "1341287"
+  PUSHER_APP_KEY: 081608330072bcce9d68
+  PUSHER_APP_SECRET: 9742364ccdedf9a9667d
+  PUSHER_APP_CLUSTER: us2
+  BROADCAST_DRIVER: pusher
+  #MIX_PUSHER_APP_KEY: myappkey
+  #MIX_PUSHER_APP_CLUSTER: mt1 
+  MIX_PUSHER_APP_KEY: "${PUSHER_APP_KEY}"
+  MIX_PUSHER_APP_CLUSTER: "${PUSHER_APP_CLUSTER}"
+
+---
+#
+# MySQL server
+# 
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-mysql
+  labels:
+    app: myapp
+    tier: mysql
+spec:
+  ports:
+    - port: 3306
+  selector:
+    app: myapp
+    tier: mysql
+  clusterIP: None
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv-volume
+  labels:
+    type: myapp
+    tier: mysql
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+  labels:
+    app: myapp
+    tier: mysql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-mysql
+  labels:
+    app: myapp
+    tier: mysql
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+      tier: mysql
+  template:
+    metadata:
+      labels:
+        app: myapp
+        tier: mysql
+    spec:
+      containers:
+      - image: mysql:5.7
+        name: mysql
+        env:
+        #- name: MYSQL_ALLOW_EMPTY_PASSWORD
+        #  value: "yes"
+        #- name: MYSQL_RANDOM_ROOT_PASSWORD
+        #  value: "true"
+        #- name: MYSQL_USER
+        #  value: root
+        - name: MYSQL_ROOT_PASSWORD
+          value: MTIzNDU2
+        - name: MYSQL_DATABASE
+          value: db_system
+        #- name: MYSQL_PASSWORD
+          # read the password from the ConfigMap
+          # so we are sure laravel and MySQL use the same
+        #  valueFrom:
+        #    configMapKeyRef:
+        #      name: myapp-laravel
+        #      key: DB_PASSWORD
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: mysql-persistent-storage
+          mountPath: /mnt/data
+      volumes:
+      - name: mysql-persistent-storage
+        persistentVolumeClaim:
+          claimName: mysql-pv-claim
+
+---
+#
+# Redis server
+#
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-redis
+  labels:
+    app: myapp
+    tier: redis
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: myapp
+    tier: redis
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-redis
+  labels:
+    app: myapp
+    tier: redis
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+      tier: redis
+  template:
+    metadata:
+      labels:
+        app: myapp
+        tier: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis
+        ports:
+        - containerPort: 6379
+
+---
+#
+# Laravel - web
+#
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-web
+  labels:
+    app: myapp
+    tier: web
+spec:
+  type: LoadBalancer
+  selector:
+    app: myapp
+    tier: web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 80
+    - name: websocket-port
+      port: 6001
+      targetPort: 6001
+  
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: web-pv-volume
+  labels:
+    type: myapp
+    tier: web
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: web-pv-claim
+  labels:
+    app: myapp
+    tier: web
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-web
+  labels:
+    app: myapp
+    tier: web
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+      tier: web
+  template:
+    metadata:
+      labels:
+        app: myapp
+        tier: web
+    spec:
+      # Init Containers are executed before the actual containers start
+      # https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+      # - perform migration
+      # - cache config
+      # - copy directory structure to persistent volume
+      initContainers:
+       - name: artisan
+         image: devskyteam/asdfg
+         args:
+           - /bin/bash
+           - -c
+           - php artisan migrate --force && php artisan config:cache && cp -Rnp /var/www/storage/* /mnt && rm -rf public/storage && php artisan storage:link
+           #- php artisan config:cache && cp -Rnp /var/www/storage/* /mnt && rm -rf public/storage && php artisan storage:link
+         envFrom:
+           - configMapRef:
+               name: myapp-laravel
+         volumeMounts:
+           - name: web-persistent-storage
+             mountPath: /mnt
+      containers:
+       - name: web
+         image: devskyteam/asdfg
+         envFrom:
+          - configMapRef:
+             name: myapp-laravel
+         ports:
+          - containerPort: 80
+            name: http
+          - containerPort: 6001
+            name: websocket-port
+         volumeMounts:
+          - name: web-persistent-storage
+            mountPath: /var/www/storage
+      volumes:
+       - name: web-persistent-storage
+         persistentVolumeClaim:
+           claimName: web-pv-claim

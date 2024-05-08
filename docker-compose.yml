@@ -1,0 +1,24 @@
+version: '3'
+
+services:
+
+  chatx:
+    build: .
+    ports:
+      - "8000:80"
+      - "6001:6001"
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  redis:
+    image: 'bitnami/redis:latest'
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
